@@ -1,0 +1,23 @@
+# Core dependencies
+fastapi>=0.95.0
+uvicorn>=0.22.0
+python-multipart>=0.0.6
+pydantic>=2.0.0
+
+# NLP and ML libraries
+transformers>=4.30.0
+torch==2.6.0
+sentence-transformers>=2.2.2
+nltk>=3.8.1
+faiss-cpu>=1.7.4
+numpy==1.25.0
+
+# Document parsing
+PyPDF2>=3.0.0
+python-docx>=0.8.11
+
+# OpenAI integration (for LLM-based segmentation)
+openai>=1.0.0
+
+# Optional: for production deployment
+gunicorn>=21.0.0
