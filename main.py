@@ -50,7 +50,7 @@ class EvidenceItem(BaseModel):
     boosted: Optional[bool] = None
     uscis_reference: Optional[str] = None
 
-class EnhancedEvaluationResponse(BaseModel):
+class EvaluationResponse(BaseModel):
     awards: List[EvidenceItem]
     memberships: List[EvidenceItem]
     press: List[EvidenceItem]
@@ -146,7 +146,7 @@ def extract_text_from_pdf(file_content):
         text += page.extract_text() + "\n"
     return text
 
-def improved_text_segmentation(text: str) -> List[str]:
+def text_segmentation(text: str) -> List[str]:
     """Segmentation for CV/resume text using an LLM to handle various formats."""
 
     import openai
@@ -188,49 +188,10 @@ def improved_text_segmentation(text: str) -> List[str]:
     else:
         raise ValueError("Failed to segment CV text - LLM segmentation failed")
 
-def detect_field_from_evidence(evidence: Dict[str, List[Dict]]) -> str:
-    """
-    Detect the applicant's field based on evidence content.
-    """
-    # Combine all evidence text
-    all_text = ""
-    for criterion, items in evidence.items():
-        for item in items:
-            all_text += item["text"] + " "
-    
-    # Define field keywords
-    field_keywords = {
-        "Computer Science": ["algorithm", "software", "programming", "computer", "data", "AI", "machine learning"],
-        "Engineering": ["engineering", "mechanical", "electrical", "civil", "structural", "design"],
-        "Medicine": ["medical", "doctor", "physician", "clinical", "patient", "healthcare", "treatment"],
-        "Business": ["business", "entrepreneur", "startup", "CEO", "executive", "management", "finance"],
-        "Arts": ["artist", "creative", "design", "exhibition", "gallery", "performance"],
-        "Sciences": ["research", "scientific", "laboratory", "experiment", "discovery", "innovation"],
-        "Education": ["professor", "teaching", "education", "academic", "university", "college", "school"],
-        "Athletics": ["athlete", "sports", "olympic", "championship", "competition", "tournament"]
-    }
-    
-    # Count occurrences of field keywords
-    field_scores = {}
-    for field, keywords in field_keywords.items():
-        score = 0
-        for keyword in keywords:
-            score += len(re.findall(r'\b' + re.escape(keyword) + r'\b', all_text.lower()))
-        field_scores[field] = score
-    
-    # Return the field with the highest score
-    if not field_scores or max(field_scores.values()) == 0:
-        return "Unspecified Field"
-    
-    return max(field_scores.items(), key=lambda x: x[1])[0]
-
 def apply_domain_knowledge(evidence: Dict[str, List[Dict]], field: str = None) -> Dict[str, List[Dict]]:
     """
     Apply domain-specific knowledge to refine evidence classification.
     """
-    # Detect the applicant's field if not provided
-    if not field:
-        field = detect_field_from_evidence(evidence)
     
     # Field-specific keywords and phrases
     field_keywords = {
@@ -282,9 +243,9 @@ def apply_domain_knowledge(evidence: Dict[str, List[Dict]], field: str = None) -
     
     return evidence
 
-def enhanced_extract_evidence(text: str, threshold: float = 0.5) -> Dict[str, List[Dict]]:
+def extract_evidence(text: str, threshold: float = 0.5) -> Dict[str, List[Dict]]:
     """
-    Enhanced evidence extraction with context awareness and confidence scores.
+    Evidence extraction with context awareness and confidence scores.
     """
     # Define candidate labels with more detailed descriptions
     candidate_labels = [
@@ -323,7 +284,7 @@ def enhanced_extract_evidence(text: str, threshold: float = 0.5) -> Dict[str, Li
     }
     
     # Segment the text
-    segments = improved_text_segmentation(text)
+    segments = text_segmentation(text)
     
     # Process each segment
     for segment in segments:
@@ -459,10 +420,10 @@ def generate_explanations(evidence: Dict[str, List[Dict]], rating_data: Dict) ->
     
     return explanations
 
-@app.post("/evaluate", response_model=EnhancedEvaluationResponse)
+@app.post("/evaluate", response_model=EvaluationResponse)
 async def evaluate_cv(
     file: UploadFile = File(...),
-    field: Optional[str] = Form(None)
+    field: str = Form(None)
 ):
     """
     Evaluate a CV/resume for O-1A visa eligibility.
@@ -482,7 +443,7 @@ async def evaluate_cv(
         raise HTTPException(status_code=500, detail=f"Error extracting text: {str(e)}")
     
     # Extract evidence
-    evidence = enhanced_extract_evidence(text)
+    evidence = extract_evidence(text)
     
     # Apply domain knowledge
     evidence = apply_domain_knowledge(evidence, field)
@@ -490,14 +451,8 @@ async def evaluate_cv(
     # Compute the weighted rating
     rating_data = compute_weighted_rating(evidence)
     
-    # Generate explanations
-    explanations = generate_explanations(evidence, rating_data)
-    
-    # Detect field if not provided
-    detected_field = field or detect_field_from_evidence(evidence)
-    
     # Prepare the response
-    return EnhancedEvaluationResponse(
+    return EvaluationResponse(
         awards=evidence["awards"],
         memberships=evidence["memberships"],
         press=evidence["press"],
@@ -509,8 +464,7 @@ async def evaluate_cv(
         overall_rating=rating_data["overall_rating"],
         score=rating_data["normalized_score"],
         criterion_scores=rating_data["criterion_scores"],
-        field=detected_field,
-        explanations=explanations
+        field=field
     )
 
 @app.get("/criteria-info/{criterion}")
@@ -533,5 +487,5 @@ async def get_criterion_info(criterion: str):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
-    # Run with: python main.py
+    # Run with: uvicorn main:app --reload
     # Then visit http://127.0.0.1:8000/docs for the interactive API documentation
